@@ -1,0 +1,15 @@
+name = "santehnikdp-ai-md"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Binds this Worker to two specific path patterns on the santehnik.dp.ua
+# zone. Everything else on that domain keeps going to whatever's already
+# serving it (GitHub Pages / Cloudflare Pages) -- a Worker Route only
+# intercepts requests matching its pattern, nothing else.
+[[routes]]
+pattern = "santehnik.dp.ua/*.md"
+zone_name = "santehnik.dp.ua"
+
+[[routes]]
+pattern = "santehnik.dp.ua/llms.txt"
+zone_name = "santehnik.dp.ua"

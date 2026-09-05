@@ -1,0 +1,13 @@
+{
+  "name": "santehnikdp-ai-md",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker: serves clean Markdown versions of santehnik.dp.ua pages (page.md) + llms.txt content index, for AI tools (ChatGPT/Claude/Perplexity) to read the site more easily. DIY replacement for the paid TidyCustoms 'Markdown for AI' + 'LLMS.txt Generator' Publii plugins.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}
