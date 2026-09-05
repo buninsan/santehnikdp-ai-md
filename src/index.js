@@ -97,7 +97,11 @@ async function handleLlmsTxt(url) {
     const xml = await res.text();
     const locs = [...xml.matchAll(/<loc>(.*?)<\/loc>/g)].map((m) => m[1]);
     for (const loc of locs) {
-      const mdLink = loc.replace(/\.html$/, '.md');
+      // Homepage in sitemap.xml is the bare origin (no .html to swap) --
+      // point it at /index.md instead of linking to itself.
+      const mdLink = loc.endsWith('.html')
+        ? loc.replace(/\.html$/, '.md')
+        : new URL('/index.md', loc).toString();
       lines.push(`- ${loc} -> ${mdLink}`);
     }
   } else {
@@ -130,12 +134,45 @@ async function fetchWithTimeout(u) {
 // parser built into the Workers runtime -- no npm HTML/DOM library needed,
 // which matters here since most of those expect a real DOMParser that
 // isn't available in the Workers runtime).
-async function convertToMarkdown(html) {
+async function convertToMarkdown(rawHtml) {
+  // Cloudflare's HTMLRewriter (lol-html) doesn't reliably parse HTML5's
+  // SVG "foreign content" self-closing syntax (<use ... />, <path ... />,
+  // etc.) -- confirmed live on trendchoicehub.com's footer social icons
+  // (<svg><use xlink:href="..."/></svg>), which failed with "Parser
+  // error: No end tag" on every page until normalized. This theme likely
+  // has the same pattern in its own share-button icons, so apply the
+  // same fix here defensively even though it hasn't been confirmed to
+  // bite on this specific site yet.
+  const html = rawHtml.replace(
+    /<(use|path|circle|rect|line|polygon|polyline|ellipse|stop|g)((?:[^>"]|"[^"]*")*?)\/>/g,
+    '<$1$2></$1>'
+  );
+
   let title = '';
   let canonical = '';
   let description = '';
   const parts = [];
   const push = (s) => parts.push(s);
+
+  // Tags/classes to strip entirely (theme chrome, not article content).
+  // Checked FIRST inside the single "main *" handler below, and only
+  // that one handler is registered for this selector -- two separate
+  // .on() calls (one to remove(), one to build markdown) turned out to
+  // NOT guarantee the removal fires before the content handler sees the
+  // same element (confirmed live: .cta-call text and a breadcrumbs
+  // JSON-LD <script> both leaked into the output on the first deploy).
+  // Doing the remove-or-emit decision inside one handler for the same
+  // element sidesteps that ordering problem entirely.
+  const REMOVE_TAGS = new Set(['script', 'style', 'noscript', 'svg', 'form', 'nav', 'footer']);
+  const REMOVE_CLASS_RE = /(^|\s)(top|lang-switcher|site-name|home-icon|works|reviews|breadcrumbs|cta-call|navbar_mobile_sidebar|navbar_mobile_sidebar__overlay)(\s|--|$)/;
+
+  // el.remove() alone turned out NOT to reliably suppress the separate
+  // text() callback for descendants (confirmed live: a .cta-call link's
+  // own [text](href) syntax stopped appearing, but its plain text still
+  // leaked through) -- so track "are we inside a subtree we're
+  // stripping" explicitly via a depth counter instead of trusting
+  // remove() to do that on its own.
+  let skipDepth = 0;
 
   const rewriter = new HTMLRewriter()
     .on('title', {
@@ -147,22 +184,17 @@ async function convertToMarkdown(html) {
     .on('meta[name="description"]', {
       element(el) { description = el.getAttribute('content') || description; }
     })
-    // Strip theme chrome first -- registered before the "main *" content
-    // handler below so these subtrees are removed before that handler
-    // ever sees them (no leaked nav/footer/widget text in the output).
-    .on(
-      [
-        'script', 'style', 'noscript', 'svg', 'form',
-        'nav', 'footer',
-        '.top', '.lang-switcher', '.site-name', '.home-icon',
-        '.works', '.reviews', '.breadcrumbs', '.cta-call',
-        '.navbar_mobile_sidebar', '.navbar_mobile_sidebar__overlay'
-      ].join(', '),
-      { element(el) { el.remove(); } }
-    )
     .on('main *', {
       element(el) {
         const tag = el.tagName;
+        const cls = el.getAttribute('class') || '';
+        if (REMOVE_TAGS.has(tag) || REMOVE_CLASS_RE.test(cls)) {
+          el.remove();
+          skipDepth++;
+          el.onEndTag(() => { skipDepth--; return null; });
+          return;
+        }
+        if (skipDepth > 0) return;
         if (/^h[1-6]$/.test(tag)) {
           push('\n' + '#'.repeat(Number(tag[1])) + ' ');
           el.onEndTag(() => { push('\n\n'); return null; });
@@ -195,6 +227,7 @@ async function convertToMarkdown(html) {
         }
       },
       text(t) {
+        if (skipDepth > 0) return;
         // Collapse whitespace within a text chunk but keep the chunk
         // itself -- structural newlines come from the element handlers
         // above, not from raw whitespace in the source HTML.

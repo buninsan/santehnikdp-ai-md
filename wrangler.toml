@@ -2,14 +2,13 @@ name = "santehnikdp-ai-md"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
-# Binds this Worker to two specific path patterns on the santehnik.dp.ua
-# zone. Everything else on that domain keeps going to whatever's already
-# serving it (GitHub Pages / Cloudflare Pages) -- a Worker Route only
-# intercepts requests matching its pattern, nothing else.
+# Cloudflare Route patterns only allow a wildcard at the START of the
+# hostname or the END of the path -- "santehnik.dp.ua/*.md" is invalid
+# (wildcard mid-path, rejected by the API). So this binds to *everything*
+# on the zone instead, and src/index.js itself decides what to handle
+# (*.md, /llms.txt) vs. transparently passing through to the real origin
+# (return fetch(request)) for every other path -- see the fallback at the
+# bottom of the fetch handler.
 [[routes]]
-pattern = "santehnik.dp.ua/*.md"
-zone_name = "santehnik.dp.ua"
-
-[[routes]]
-pattern = "santehnik.dp.ua/llms.txt"
+pattern = "santehnik.dp.ua/*"
 zone_name = "santehnik.dp.ua"
