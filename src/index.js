@@ -43,8 +43,13 @@ export default {
 async function handleMarkdown(url) {
   // Publii renders pretty URLs (e.g. /avariynyy-vyklyk-santehnika-dnipro)
   // to actual .html files on disk/in the deployed repo — so the origin
-  // document for /page.md is /page.html.
-  const htmlPath = url.pathname.replace(/\.md$/, '.html');
+  // document for /page.md is /page.html. Special-case the homepage:
+  // /index.md must resolve to /index.html, not the invalid /.html
+  // (head.hbs links to /index.md for exactly this reason).
+  let htmlPath = url.pathname.replace(/\.md$/, '.html');
+  if (htmlPath === '/.html' || htmlPath === '' || htmlPath === '/index.html') {
+    htmlPath = '/index.html';
+  }
   const htmlUrl = new URL(htmlPath, url.origin);
 
   const originRes = await fetchWithTimeout(htmlUrl.toString());
